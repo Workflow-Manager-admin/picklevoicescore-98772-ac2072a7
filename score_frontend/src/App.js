@@ -14,16 +14,31 @@ function formatScore(score) {
   return `${score.a}-${score.b}`;
 }
 
-// Parses voice command text for 'pickle' commands, returns object {type,data}
+/**
+ * Parses the spoken text for pickleball voice commands.
+ * Recognizes:
+ *   - "pickle 7 5", "pickle seven five", etc. (score entry)
+ *   - "hey pickle, what's the score?", "what is the score", etc. (query)
+ * Returns {type, data?}.
+ */
+// PUBLIC_INTERFACE
 function parseVoiceCommand(text) {
-  // Normalize
   const t = text.trim().toLowerCase();
-  if (t.includes("what’s the score") || t.includes("whats the score")) {
+
+  // Accept a variety of query patterns (flexible for "hey pickle" prefix and "what's the score" etc.)
+  if (
+    /(hey\s*)?pickle[,\s]*(what(('|’)?)s|is|was)?[\s]*the\s*score/.test(t) ||
+    t.includes("whats the score") ||
+    t.includes("what’s the score") ||
+    t.includes("what is the score") ||
+    t.includes("score?")
+  ) {
     return { type: "query" };
   }
 
-  // Score pattern: e.g., "pickle seven five", "pickle 7 5"
-  const rx = /^pickle\s+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)$/i;
+  // Score pattern: allow optional "hey" prefix and optional "pickle" after "hey",
+  // e.g., "pickle 7 5", "hey pickle 7 5", "hey pickle seven five"
+  const rx = /^(?:hey\s*)?pickle\s+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)[\s,]+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)/i;
   const match = t.match(rx);
   if (match) {
     const wordsToNum = w => {
