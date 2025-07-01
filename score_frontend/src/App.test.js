@@ -98,3 +98,38 @@ test("voice command 'pickle' triggers score entry via mocked speech recognition"
   // Status message should indicate score updated
   expect(screen.getByText(/score updated/i)).toBeInTheDocument();
 });
+
+test("voice command 'hey pickle, what’s the score?' triggers speech output with latest score", async () => {
+  const { container } = render(<App />);
+  // Patch SpeechRecognition to track test instances
+  let recognitionInstance;
+  const orig = window.SpeechRecognition;
+  window.SpeechRecognition = function() {
+    recognitionInstance = new orig();
+    return recognitionInstance;
+  };
+
+  // Set up known score first: "pickle 8 5"
+  render(<App />);
+  let voiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  fireEvent.click(voiceBtn);
+  recognitionInstance.mockResult('pickle 8 5');
+  await waitFor(() => {
+    expect(screen.getByText(/8-5/)).toBeInTheDocument();
+  });
+
+  // Now: ask "hey pickle, what's the score?"
+  voiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  fireEvent.click(voiceBtn);
+  recognitionInstance.mockResult("hey pickle, what’s the score?");
+  // Expect: status updated and speech output called
+  await waitFor(() => {
+    expect(screen.getByText(/answered with the current score/i)).toBeInTheDocument();
+  });
+  // Speech output: "The score is 8 to 5"
+  expect(window.speechSynthesis.speak).toHaveBeenCalledWith(
+    expect.objectContaining({
+      text: expect.stringMatching(/8 to 5/),
+    })
+  );
+});
