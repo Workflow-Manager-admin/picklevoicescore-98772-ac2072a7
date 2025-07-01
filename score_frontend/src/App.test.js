@@ -55,10 +55,15 @@ function getByRoleAndText(container, role, text) {
   );
 }
 
+// Use test ID for voice button (stable)
+function getVoiceCommandBtn(container) {
+  return container.querySelector('[data-testid="voice-command-btn"]');
+}
+
 test("voice command 'pickle' triggers score entry via mocked speech recognition", async () => {
   const { container } = render(<App />);
-  // Find the voice command button
-  const voiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  // Find the voice command button by test id
+  const voiceBtn = getVoiceCommandBtn(container);
   expect(voiceBtn).toBeInTheDocument();
 
   // Click to "start" listening
@@ -81,7 +86,7 @@ test("voice command 'pickle' triggers score entry via mocked speech recognition"
   render(<App />);
 
   // Trigger the listening button (again, this time for the patched instance)
-  const newVoiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  const newVoiceBtn = getVoiceCommandBtn(container);
   fireEvent.click(newVoiceBtn);
 
   // Simulate saying: "pickle 5 3"
@@ -111,7 +116,7 @@ test("voice command 'hey pickle, what’s the score?' triggers speech output wit
 
   // Set up known score first: "pickle 8 5"
   render(<App />);
-  let voiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  let voiceBtn = getVoiceCommandBtn(container);
   fireEvent.click(voiceBtn);
   recognitionInstance.mockResult('pickle 8 5');
   await waitFor(() => {
@@ -119,7 +124,7 @@ test("voice command 'hey pickle, what’s the score?' triggers speech output wit
   });
 
   // Now: ask "hey pickle, what's the score?"
-  voiceBtn = getByRoleAndText(container, 'button', 'voice command');
+  voiceBtn = getVoiceCommandBtn(container);
   fireEvent.click(voiceBtn);
   recognitionInstance.mockResult("hey pickle, what’s the score?");
   // Expect: status updated and speech output called

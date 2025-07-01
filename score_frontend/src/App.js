@@ -261,7 +261,9 @@ function App() {
             padding: '1px 7px'
           }}>"hey pickle, what's the score?"</span></div>
 
-          <button className="pb-voice-btn"
+          <button
+            className="pb-voice-btn"
+            data-testid="voice-command-btn"
             style={{
               margin: '20px 0 12px 0',
               padding: '18px 35px',
