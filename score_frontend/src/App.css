@@ -1,0 +1,193 @@
+/* CSS Variables for Theme Management */
+:root {
+  /* Light theme colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --text-primary: #282c34;
+  --text-secondary: #61dafb;
+  --border-color: #e9ecef;
+  --button-bg: #007bff;
+  --button-text: #ffffff;
+}
+
+[data-theme="dark"] {
+  /* Dark theme colors */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #282c34;
+  --text-primary: #ffffff;
+  --text-secondary: #61dafb;
+  --border-color: #404040;
+  --button-bg: #0056b3;
+  --button-text: #ffffff;
+}
+
+.App {
+  text-align: center;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Pickleball Score App styles */
+.pb-app-root {
+  background: var(--pb-secondary, #FFFFFF);
+  min-height: 100vh;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  color: #222;
+}
+
+.pb-main-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar/history */
+.pb-history-bar {
+  background: var(--pb-secondary, #FFFFFF);
+  border-right: 2px solid var(--pb-primary, #4CAF50);
+  min-width: 170px;
+  max-width: 300px;
+}
+
+.pb-score-panel {
+  flex: 1;
+  background: #FCFCFC;
+}
+
+/* Score numbers and elements */
+.pb-current-score {
+  font-size: 70px;
+  font-weight: 700;
+  color: var(--pb-primary, #4CAF50);
+}
+
+.pb-title {
+  color: var(--pb-primary, #4CAF50);
+}
+
+/* Voice button styles */
+.pb-voice-btn {
+  margin: 20px 0 12px 0;
+  padding: 18px 35px;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 32px;
+  border: none;
+  background: var(--pb-primary, #4CAF50);
+  color: #fff;
+  box-shadow: 0 3px 8px #4442;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* Manual input form */
+.pb-manual-form input {
+  text-align: center;
+}
+
+.pb-manual-form input[type="number"]::-webkit-inner-spin-button, 
+.pb-manual-form input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Smaller screens */
+@media (max-width: 700px) {
+  .pb-main-layout {
+    flex-direction: column;
+  }
+  .pb-history-bar {
+    flex-direction: row;
+    width: 100vw;
+    min-width: unset;
+    max-width: unset;
+    border-right: none;
+    border-bottom: 2px solid var(--pb-primary, #4CAF50)22;
+    padding: 12px 6px;
+    min-height: 68px;
+  }
+  .pb-score-panel {
+    padding: 16px 2vw 80px 2vw !important;
+  }
+}
+
+/* Status and transcript */
+.pb-transcript {
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: var(--bg-secondary);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease;
+  position: relative;
+}
+
+.App-link {
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
+}
+
+.theme-toggle {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background-color: var(--button-bg);
+  color: var(--button-text);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.theme-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  opacity: 0.9;
+}
+
+.theme-toggle:active {
+  transform: translateY(0);
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive design for mobile */
+@media (max-width: 768px) {
+  .theme-toggle {
+    top: 10px;
+    right: 10px;
+    padding: 8px 16px;
+    font-size: 12px;
+  }
+}
