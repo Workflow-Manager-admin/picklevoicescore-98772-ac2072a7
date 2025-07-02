@@ -19,11 +19,7 @@
   "eslintConfig": {
     "extends": "react-app"
   },
-  "jest": {
-    "setupFiles": [
-      "<rootDir>/jest.speech.mock.setup.js"
-    ]
-  },
+  "jest": {},
   "browserslist": {
     "production": [
       ">0.2%",
