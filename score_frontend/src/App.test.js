@@ -1,3 +1,5 @@
+console.log("[App.test.js] typeof window.speechSynthesis.getVoices is", typeof window?.speechSynthesis?.getVoices, window?.speechSynthesis?.getVoices?.());
+
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from './App';
 
