@@ -1,43 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
+import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
+import { useSpeechSynthesis } from 'react-speech-kit';
 import './App.css';
 
-// Color/Theme System
-const THEME_COLORS = {
-  primary: '#4CAF50', // Main
-  secondary: '#FFFFFF', // Background/Sidebar
-  accent: '#FFEB3B', // Accent/Highlight
+// === Theme Tokens ===
+const THEME = {
+  primary: '#4CAF50',
+  accent: '#FFEB3B',
+  secondary: '#FFFFFF',
 };
 
-// Utility: Format score object for display ("7-5")
+const WAKE_WORD = 'pickle';
+const QUERY_PHRASE = [
+  "hey pickle, what's the score",
+  'what is the score',
+  'hey pickle whats the score',
+  'pickle what is the score',
+  'pickle, what is the score',
+];
+
+// PUBLIC_INTERFACE
 function formatScore(score) {
-  if (!score || score.a === undefined || score.b === undefined) return "-";
+  if (!score || score.a === undefined || score.b === undefined) return '-';
   return `${score.a}-${score.b}`;
 }
 
-/**
- * Parses the spoken text for pickleball voice commands.
- * Recognizes:
- *   - "pickle 7 5", "pickle seven five", etc. (score entry)
- *   - "hey pickle, what's the score?", "what is the score", etc. (query)
- * Returns {type, data?}.
- */
 // PUBLIC_INTERFACE
 function parseVoiceCommand(text) {
   const t = text.trim().toLowerCase();
 
-  // Accept a variety of query patterns (flexible for "hey pickle" prefix and "what's the score" etc.)
+  // Score query
   if (
-    /(hey\s*)?pickle[,\s]*(what(('|’)?)s|is|was)?[\s]*the\s*score/.test(t) ||
-    t.includes("whats the score") ||
-    t.includes("what’s the score") ||
-    t.includes("what is the score") ||
-    t.includes("score?")
+    QUERY_PHRASE.some(q => t.includes(q)) ||
+    /(hey\s*)?pickle[, ]*(what(’|')?s|is)?[ ]*the score/.test(t)
   ) {
-    return { type: "query" };
+    return { type: 'query' };
   }
 
-  // Score pattern: allow optional "hey" prefix and optional "pickle" after "hey",
-  // e.g., "pickle 7 5", "hey pickle 7 5", "hey pickle seven five"
+  // e.g. 'pickle 7 5' or 'hey pickle 8 4', flexible numbers
   const rx = /^(?:hey\s*)?pickle\s+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)[\s,]+(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)/i;
   const match = t.match(rx);
   if (match) {
@@ -51,113 +51,135 @@ function parseVoiceCommand(text) {
     const a = wordsToNum(match[1]);
     const b = wordsToNum(match[2]);
     if (a !== null && b !== null) {
-      return { type: "score", data: { a, b } };
+      return { type: 'score', data: { a, b } };
     }
   }
-  return { type: "unknown" };
+  return { type: 'unknown' };
 }
 
 // PUBLIC_INTERFACE
 function App() {
-  const [theme, setTheme] = useState('light');
+  // Score State
   const [score, setScore] = useState({ a: 0, b: 0 });
   const [history, setHistory] = useState([{ a: 0, b: 0, timestamp: Date.now() }]);
   const [statusMsg, setStatusMsg] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [speaking, setSpeaking] = useState(false);
+  const [theme, setTheme] = useState('light');
+  const [manuallyListening, setManuallyListening] = useState(false);
 
-  // refs to SpeechRecognition and SpeechSynthesis instances
-  const recognitionRef = useRef(null);
+  // Speech Recognition (react-speech-recognition)
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition,
+  } = useSpeechRecognition();
+  // Text-to-Speech (react-speech-kit)
+  const { speak, speaking, supported: ttsSupported, voices } = useSpeechSynthesis();
 
-  // COLORS: CSS custom properties for dynamic accents
+  const ignoreWake = useRef(false);
+
+  // Theme system: CSS root
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.style.setProperty('--pb-primary', THEME_COLORS.primary);
-    document.documentElement.style.setProperty('--pb-accent', THEME_COLORS.accent);
-    document.documentElement.style.setProperty('--pb-secondary', THEME_COLORS.secondary);
+    document.documentElement.style.setProperty('--pb-primary', THEME.primary);
+    document.documentElement.style.setProperty('--pb-accent', THEME.accent);
+    document.documentElement.style.setProperty('--pb-secondary', THEME.secondary);
   }, [theme]);
 
   // PUBLIC_INTERFACE
-  const toggleTheme = () => {
-    setTheme(t => (t === 'light' ? 'dark' : 'light'));
-  };
+  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
 
   // PUBLIC_INTERFACE
-  // Speech Recognition Setup
+  // Listen for wake word in transcript
   useEffect(() => {
-    // Do one-time SpeechRecognition setup (if supported)
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      setStatusMsg('Speech Recognition not supported in this browser.');
-      return;
+    if (!listening && transcript && !manuallyListening) {
+      // On transcript, parse
+      handleVoice(transcript);
+      resetTranscript();
     }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
+    // eslint-disable-next-line
+  }, [transcript, listening, manuallyListening]);
 
-    recognition.lang = 'en-US';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-
-    recognition.onresult = event => {
-      const txt = event.results[0][0].transcript;
-      setTranscript(txt);
-
-      const command = parseVoiceCommand(txt);
-      if (command.type === "score") {
-        setScore(command.data);
-        setHistory(prev => [{ ...command.data, timestamp: Date.now() }, ...prev]);
-        // Speak out confirmation
-        speakText(`Score recorded: ${command.data.a} to ${command.data.b}`);
-        setStatusMsg(`Score updated: ${command.data.a} - ${command.data.b}`);
-      } else if (command.type === "query") {
-        speakText(`The score is ${score.a} to ${score.b}`);
-        setStatusMsg("Answered with the current score.");
-      } else {
-        speakText("Sorry, I didn't understand. Please try again.");
-        setStatusMsg("Unrecognized. Say: 'pickle [your score]' or 'hey pickle, what's the score?'");
+  // PUBLIC_INTERFACE
+  // Start continuous listening for the wake word unless TTS is active
+  useEffect(() => {
+    if (!browserSupportsSpeechRecognition) return;
+    if (speaking) {
+      SpeechRecognition.abortListening();
+    } else if (!listening && !manuallyListening) {
+      SpeechRecognition.startListening({ continuous: true, language: 'en-US' });
+    }
+    // Stop listening when window hidden (power-optimize)
+    const onBlur = () => SpeechRecognition.abortListening();
+    const onFocus = () => {
+      if (!speaking && !manuallyListening) {
+        SpeechRecognition.startListening({ continuous: true, language: 'en-US' });
       }
     };
-    recognition.onerror = event => {
-      setStatusMsg(`Recognition error: ${event.error}`);
-      setIsListening(false);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      SpeechRecognition.abortListening();
     };
-
-    recognitionRef.current = recognition;
-    // No cleanup needed (instance is persistent)
-  }, [score]);
+    // eslint-disable-next-line
+  }, [browserSupportsSpeechRecognition, speaking, manuallyListening]);
 
   // PUBLIC_INTERFACE
-  // TTS: Speak text
-  function speakText(txt) {
-    // Simple SpeechSynthesis API
-    setSpeaking(true);
-    const u = new window.SpeechSynthesisUtterance(txt);
-    u.lang = "en-US";
-    u.onend = () => setSpeaking(false);
-    window.speechSynthesis.speak(u);
+  // Handles any transcript
+  function handleVoice(txt) {
+    const cmd = parseVoiceCommand(txt);
+    if (cmd.type === 'score') {
+      setScore(cmd.data);
+      setHistory(prev => [{ ...cmd.data, timestamp: Date.now() }, ...prev]);
+      tts(`Score recorded: ${cmd.data.a} to ${cmd.data.b}`);
+      setStatusMsg(`Score updated: ${cmd.data.a} - ${cmd.data.b}`);
+    } else if (cmd.type === 'query') {
+      tts(`The score is ${score.a} to ${score.b}`);
+      setStatusMsg('Answered with the current score.');
+    } else {
+      tts("Sorry, I didn't understand. Please say 'pickle' and then the scores.");
+      setStatusMsg("Not understood. Say: 'pickle [score]' or 'hey pickle, what’s the score?'");
+    }
   }
 
   // PUBLIC_INTERFACE
-  // Manual start/stop listening
-  const handleListen = () => {
-    if (!recognitionRef.current) {
-      setStatusMsg("Speech recognition unavailable.");
+  // Manual Listening (voice input button)
+  function startManualListening() {
+    if (!browserSupportsSpeechRecognition) {
+      setStatusMsg('Speech Recognition not supported in this browser.');
       return;
     }
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      setTranscript('');
-      setStatusMsg("Listening... Use the trigger word 'pickle'");
-      recognitionRef.current.start();
+    setManuallyListening(true);
+    setStatusMsg("Listening... Say something with 'pickle'");
+    resetTranscript();
+    SpeechRecognition.startListening({ continuous: false, language: 'en-US' });
+  }
+  useEffect(() => {
+    if (!manuallyListening) return;
+    if (!listening && transcript) {
+      handleVoice(transcript);
+      setManuallyListening(false);
+      resetTranscript();
     }
-  };
+    // eslint-disable-next-line
+  }, [listening, transcript, manuallyListening]);
 
   // PUBLIC_INTERFACE
-  // Manual text input field (backup for voice input)
+  // Text-to-speech wrapper: use react-speech-kit or fallback to native API
+  function tts(text) {
+    if (ttsSupported && voices && voices.length > 0) {
+      speak({ text, voice: voices.find(v => v.lang.startsWith('en')) || voices[0] });
+    } else if ('speechSynthesis' in window) {
+      const utter = new window.SpeechSynthesisUtterance(text);
+      utter.lang = 'en-US';
+      window.speechSynthesis.speak(utter);
+    }
+  }
+
+  // Manual form handler
+  // PUBLIC_INTERFACE
   function handleManualScoreInput(evt) {
     evt.preventDefault();
     const form = evt.target;
@@ -167,137 +189,201 @@ function App() {
       setScore({ a, b });
       setHistory(prev => [{ a, b, timestamp: Date.now() }, ...prev]);
       setStatusMsg(`Score manually set: ${a} - ${b}`);
-      speakText(`Score updated: ${a} to ${b}`);
+      tts(`Score updated: ${a} to ${b}`);
     }
   }
 
   // PUBLIC_INTERFACE
-  // Reset history and score
   function resetScores() {
     setScore({ a: 0, b: 0 });
     setHistory([{ a: 0, b: 0, timestamp: Date.now() }]);
-    setStatusMsg("Scores reset.");
-    speakText("Scores have been reset.");
+    setStatusMsg('Scores reset.');
+    tts('Scores have been reset.');
   }
 
-  // Layout as described: main panel (score), voice cmd button, history sidebar, bottom nav
+  // Help text
+  const helpText =
+    "Say 'pickle' and a score to record (for example: 'pickle seven five'), or say 'hey pickle, what’s the score?' to ask for the score. You can use the voice button or the manual form as backup.";
+
+  // Layout
   return (
-    <div className="pb-app-root" style={{ background: THEME_COLORS.secondary, minHeight: '100vh', fontFamily: 'Inter, "Segoe UI", Arial, sans-serif', color: '#222' }}>
-      {/* Top theme toggle button */}
-      <button className="theme-toggle" style={{ right: 32, top: 20 }} onClick={toggleTheme}
-        aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}>
+    <div
+      className="pb-app-root"
+      style={{
+        background: THEME.secondary,
+        minHeight: '100vh',
+        color: '#222',
+        fontFamily: 'Inter, Segoe UI, Arial, sans-serif'
+      }}
+    >
+      {/* Theme toggle */}
+      <button
+        className="theme-toggle"
+        style={{ right: 32, top: 20 }}
+        onClick={toggleTheme}
+        aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+      >
         {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
       </button>
+
       <div className="pb-main-layout" style={{ display: 'flex', minHeight: '100vh' }}>
-        {/* LEFT: Sidebar history */}
-        <aside className="pb-history-bar"
+        {/* Sidebar/history */}
+        <aside
+          className="pb-history-bar"
           style={{
-            background: THEME_COLORS.secondary,
-            borderRight: `2px solid ${THEME_COLORS.primary}22`,
+            background: THEME.secondary,
+            borderRight: `2px solid ${THEME.primary}22`,
             width: 220,
             padding: '40px 14px 10px 14px',
             boxSizing: 'border-box',
+            minWidth: 170,
+            maxWidth: 300,
+            gap: 12,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-start',
-            minWidth: 170,
-            maxWidth: 300,
-            gap: '12px',
-          }}>
-          <h4 style={{ color: THEME_COLORS.primary, marginBottom: 6 }}>History</h4>
+          }}
+        >
+          <h4 style={{ color: THEME.primary, marginBottom: 6 }}>History</h4>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, width: '100%' }}>
             {history.map((s, idx) => (
-              <li key={s.timestamp || idx} style={{
-                margin: '6px 0',
-                padding: '4px 9px',
-                background: idx === 0 ? THEME_COLORS.accent + "33" : 'transparent',
-                borderRadius: 8,
-                fontWeight: idx === 0 ? 600 : 400,
-                color: idx === 0 ? '#333' : '#888',
-                border: idx === 0 ? `1px solid ${THEME_COLORS.primary}` : 'none',
-                fontSize: 15,
-              }}>
-                {formatScore(s)} <span style={{ fontSize: 11, color: '#bbb', marginLeft: 8 }}>{new Date(s.timestamp).toLocaleTimeString([], { timeStyle: 'short' })}</span>
+              <li
+                key={s.timestamp || idx}
+                style={{
+                  margin: '6px 0',
+                  padding: '4px 9px',
+                  background: idx === 0 ? THEME.accent + '33' : 'transparent',
+                  borderRadius: 8,
+                  fontWeight: idx === 0 ? 600 : 400,
+                  color: idx === 0 ? '#333' : '#888',
+                  border: idx === 0 ? `1px solid ${THEME.primary}` : 'none',
+                  fontSize: 15,
+                }}
+              >
+                {formatScore(s)}{' '}
+                <span style={{ fontSize: 11, color: '#bbb', marginLeft: 8 }}>
+                  {new Date(s.timestamp).toLocaleTimeString([], { timeStyle: 'short' })}
+                </span>
               </li>
             ))}
           </ul>
-          <button onClick={resetScores} style={{
-            marginTop: 'auto',
-            background: '#F8F8F8',
-            border: `1px solid ${THEME_COLORS.primary}44`,
-            color: THEME_COLORS.primary,
-            borderRadius: 8,
-            fontWeight: 600,
-            padding: '7px 12px',
-            cursor: 'pointer',
-            fontSize: 13
-          }}>Reset</button>
+          <button
+            onClick={resetScores}
+            style={{
+              marginTop: 'auto',
+              background: '#F8F8F8',
+              border: `1px solid ${THEME.primary}44`,
+              color: THEME.primary,
+              borderRadius: 8,
+              fontWeight: 600,
+              padding: '7px 12px',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            Reset
+          </button>
         </aside>
-        {/* CENTER: Score board + input/voice controls */}
-        <main className="pb-score-panel" style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '60px 20px 90px 20px',
-          position: 'relative',
-          background: '#FCFCFC'
-        }}>
-          <h2 className="pb-title" style={{
-            margin: '10px 0 8px 0',
-            fontWeight: 700,
-            fontSize: 32,
-            letterSpacing: '0.04em',
-            color: THEME_COLORS.primary,
-            textShadow: `0 2px 8px ${THEME_COLORS.primary}22`
-          }}>Pickleball Score</h2>
-          <div className="pb-current-score" style={{
-            fontSize: 70,
-            fontWeight: 700,
-            color: THEME_COLORS.primary,
-            margin: '30px 0 12px 0',
-            letterSpacing: 3,
-            background: `linear-gradient(90deg, ${THEME_COLORS.primary} 60%, ${THEME_COLORS.accent} 100%)`,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}>
-            {score && score.a !== undefined ? formatScore(score) : "-"}
+        {/* Main score panel */}
+        <main
+          className="pb-score-panel"
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '60px 20px 90px 20px',
+            position: 'relative',
+            background: '#FCFCFC',
+          }}
+        >
+          <h2
+            className="pb-title"
+            style={{
+              margin: '10px 0 8px 0',
+              fontWeight: 700,
+              fontSize: 32,
+              letterSpacing: '0.04em',
+              color: THEME.primary,
+              textShadow: `0 2px 8px ${THEME.primary}22`,
+            }}
+          >
+            Pickleball Score
+          </h2>
+          <div
+            className="pb-current-score"
+            style={{
+              fontSize: 70,
+              fontWeight: 700,
+              color: THEME.primary,
+              margin: '30px 0 12px 0',
+              letterSpacing: 3,
+              background: `linear-gradient(90deg, ${THEME.primary} 60%, ${THEME.accent} 100%)`,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            {score && score.a !== undefined ? formatScore(score) : '-'}
           </div>
-          <div style={{ color: "#888", fontSize: 16, marginBottom: 16 }}>Say <span style={{
-            fontWeight: 600,
-            background: THEME_COLORS.accent + "88",
-            borderRadius: 5,
-            padding: '1px 7px'
-          }}>pickle 5 3</span> or <span style={{
-            fontWeight: 600,
-            background: THEME_COLORS.accent + "88",
-            borderRadius: 5,
-            padding: '1px 7px'
-          }}>"hey pickle, what's the score?"</span></div>
+          <div
+            style={{
+              color: '#888',
+              fontSize: 16,
+              marginBottom: 16,
+            }}
+          >
+            Say{' '}
+            <span
+              style={{
+                fontWeight: 600,
+                background: THEME.accent + '88',
+                borderRadius: 5,
+                padding: '1px 7px',
+              }}
+            >
+              pickle 5 3
+            </span>{' '}
+            or{' '}
+            <span
+              style={{
+                fontWeight: 600,
+                background: THEME.accent + '88',
+                borderRadius: 5,
+                padding: '1px 7px',
+              }}
+            >
+              "hey pickle, what's the score?"
+            </span>
+          </div>
 
           <button
             className="pb-voice-btn"
             data-testid="voice-command-btn"
+            onClick={startManualListening}
+            aria-label={manuallyListening || listening ? 'Stop listening' : 'Start listening'}
             style={{
               margin: '20px 0 12px 0',
               padding: '18px 35px',
               fontSize: 18,
               fontWeight: 700,
-              borderRadius: '32px',
+              borderRadius: 32,
               border: 'none',
-              background: isListening ? THEME_COLORS.accent : THEME_COLORS.primary,
-              color: isListening ? '#333' : '#fff',
-              boxShadow: isListening ? `0 0 0 4px ${THEME_COLORS.accent}66` : '0 3px 8px #4442',
+              background: manuallyListening || listening ? THEME.accent : THEME.primary,
+              color: manuallyListening || listening ? '#333' : '#fff',
+              boxShadow:
+                manuallyListening || listening
+                  ? `0 0 0 4px ${THEME.accent}66`
+                  : '0 3px 8px #4442',
               cursor: 'pointer',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
             }}
-            onClick={handleListen}
-            aria-label={isListening ? "Stop listening" : "Start listening"}
             disabled={speaking}
           >
-            <span role="img" aria-label="microphone">{isListening ? '🎤' : '🎙️'}</span>
-            {isListening ? ' Listening…' : ' Voice Command'}
+            <span role="img" aria-label="microphone">
+              {manuallyListening || listening ? '🎤' : '🎙️'}
+            </span>{' '}
+            {manuallyListening || listening ? ' Listening…' : ' Voice Command'}
           </button>
           <div
             className="pb-transcript"
@@ -310,86 +396,155 @@ function App() {
               background: transcript ? '#f5f5f5' : 'transparent',
               borderRadius: 5,
               padding: transcript ? '6px 12px' : 0,
-              border: transcript ? `1.5px solid ${THEME_COLORS.primary}33` : 'none',
-              maxWidth: 260
+              border: transcript ? `1.5px solid ${THEME.primary}33` : 'none',
+              maxWidth: 260,
             }}
-          >{transcript}</div>
+          >
+            {transcript}
+          </div>
           {/* Manual entry fallback */}
-          <form className="pb-manual-form" style={{
-            marginTop: 18,
-            display: 'flex',
-            flexDirection: 'row',
-            gap: 10,
-            alignItems: 'center',
-            background: '#F6F7F8',
-            padding: '10px 18px',
-            borderRadius: 13,
-            boxShadow: '0 2px 12px #1231',
-            maxWidth: 370,
-            marginLeft: 'auto',
-            marginRight: 'auto'
-          }} onSubmit={handleManualScoreInput}>
-            <span style={{ color: THEME_COLORS.primary, fontWeight: 600, fontSize: 15 }}>
+          <form
+            className="pb-manual-form"
+            style={{
+              marginTop: 18,
+              display: 'flex',
+              flexDirection: 'row',
+              gap: 10,
+              alignItems: 'center',
+              background: '#F6F7F8',
+              padding: '10px 18px',
+              borderRadius: 13,
+              boxShadow: '0 2px 12px #1231',
+              maxWidth: 370,
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }}
+            onSubmit={handleManualScoreInput}
+          >
+            <span
+              style={{
+                color: THEME.primary,
+                fontWeight: 600,
+                fontSize: 15,
+              }}
+            >
               Manual
             </span>
-            <input name="a" aria-label="Score for Side A" type="number" min="0" max="99" required placeholder="A"
-              defaultValue={score.a} style={{
-                width: 46, padding: 6, border: `1.5px solid ${THEME_COLORS.primary}33`, borderRadius: 6, fontWeight: 600,
-                fontSize: 18
-              }} />
-            <span style={{ fontSize: 22, color: "#bbb", margin: "0 2px" }}>-</span>
-            <input name="b" aria-label="Score for Side B" type="number" min="0" max="99" required placeholder="B"
-              defaultValue={score.b} style={{
-                width: 46, padding: 6, border: `1.5px solid ${THEME_COLORS.primary}33`, borderRadius: 6, fontWeight: 600,
-                fontSize: 18
-              }} />
-            <button type="submit" style={{
-              padding: '7px 13px',
-              background: THEME_COLORS.primary,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              fontWeight: 600,
-              fontSize: 14,
-              marginLeft: 8,
-              boxShadow: '0 1px 6px #0001',
-              cursor: 'pointer'
-            }}>Set</button>
+            <input
+              name="a"
+              aria-label="Score for Side A"
+              type="number"
+              min="0"
+              max="99"
+              required
+              placeholder="A"
+              defaultValue={score.a}
+              style={{
+                width: 46,
+                padding: 6,
+                border: `1.5px solid ${THEME.primary}33`,
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 18,
+              }}
+            />
+            <span style={{ fontSize: 22, color: '#bbb', margin: '0 2px' }}>-</span>
+            <input
+              name="b"
+              aria-label="Score for Side B"
+              type="number"
+              min="0"
+              max="99"
+              required
+              placeholder="B"
+              defaultValue={score.b}
+              style={{
+                width: 46,
+                padding: 6,
+                border: `1.5px solid ${THEME.primary}33`,
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 18,
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '7px 13px',
+                background: THEME.primary,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 14,
+                marginLeft: 8,
+                boxShadow: '0 1px 6px #0001',
+                cursor: 'pointer',
+              }}
+            >
+              Set
+            </button>
           </form>
-          {/* Status message */}
-          <div style={{
-            marginTop: 14,
-            color: statusMsg.includes("error") ? "#E3414E" : "#717171",
-            fontSize: 13,
-            minHeight: 22
-          }}>{statusMsg}</div>
+          <div
+            style={{
+              marginTop: 14,
+              color: statusMsg.includes('error') ? '#E3414E' : '#717171',
+              fontSize: 13,
+              minHeight: 22,
+            }}
+          >
+            {statusMsg}
+          </div>
         </main>
       </div>
-      {/* Bottom navigation */}
-      <nav className="pb-bottom-nav" style={{
-        background: '#F8F9FA',
-        borderTop: `2px solid ${THEME_COLORS.primary}11`,
-        height: 58,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-around',
-        position: 'fixed',
-        bottom: 0,
-        width: '100vw',
-        left: 0,
-        boxShadow: '0 -1px 8px #ddd2'
-      }}>
-        <button style={{
-          background: 'none', border: 'none', color: THEME_COLORS.primary, fontWeight: 700, fontSize: 15, cursor: 'pointer'
+      {/* Bottom nav */}
+      <nav
+        className="pb-bottom-nav"
+        style={{
+          background: '#F8F9FA',
+          borderTop: `2px solid ${THEME.primary}11`,
+          height: 58,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-around',
+          position: 'fixed',
+          bottom: 0,
+          width: '100vw',
+          left: 0,
+          boxShadow: '0 -1px 8px #ddd2',
         }}
-          onClick={() => alert("Settings feature coming soon.")}>
-          <span role="img" aria-label="settings" style={{ fontSize: 19 }}>⚙️</span> Settings
+      >
+        <button
+          style={{
+            background: 'none',
+            border: 'none',
+            color: THEME.primary,
+            fontWeight: 700,
+            fontSize: 15,
+            cursor: 'pointer',
+          }}
+          onClick={() => alert('Settings feature coming soon.')}
+        >
+          <span role="img" aria-label="settings" style={{ fontSize: 19 }}>
+            ⚙️
+          </span>{' '}
+          Settings
         </button>
-        <button style={{
-          background: 'none', border: 'none', color: THEME_COLORS.primary, fontWeight: 700, fontSize: 15, cursor: 'pointer'
-        }}
-          onClick={() => alert("Say 'pickle' and the score to record.\nSay 'hey pickle, what’s the score?' to query.\nOr use the manual inputs.")}>
-          <span role="img" aria-label="help" style={{ fontSize: 19 }}>❓</span> Help
+        <button
+          style={{
+            background: 'none',
+            border: 'none',
+            color: THEME.primary,
+            fontWeight: 700,
+            fontSize: 15,
+            cursor: 'pointer',
+          }}
+          onClick={() => alert(helpText)}
+        >
+          <span role="img" aria-label="help" style={{ fontSize: 19 }}>
+            ❓
+          </span>{' '}
+          Help
         </button>
       </nav>
     </div>
